@@ -2,46 +2,193 @@
 
 import * as api from '../api.js';
 import * as ws from '../ws.js';
-import { el, escapeHTML, formatChatTime, getInitial, throttle, debounce } from './utils.js';
+import { el, formatMessageDateTime, getInitial, throttle, debounce, showToast } from './utils.js';
 
-let currentChatUser = null; // { id, nickname }
+let currentChatUser = null;
 let messageOffset = 0;
 let allMessagesLoaded = false;
 let isLoadingMore = false;
+let usersCache = [];
+let loggedInUser = null;
+const unreadByUser = new Map();
+
+function sortUsers(users) {
+    return [...users].sort((a, b) => {
+        if (a.lastMsgAt && b.lastMsgAt) {
+            return new Date(b.lastMsgAt) - new Date(a.lastMsgAt);
+        }
+        if (a.lastMsgAt) return -1;
+        if (b.lastMsgAt) return 1;
+        return a.nickname.localeCompare(b.nickname);
+    });
+}
+
+function sortOnlineUsers(users) {
+    return [...users].sort((a, b) => a.nickname.localeCompare(b.nickname));
+}
+
+function getUnreadCount(userId) {
+    return unreadByUser.get(userId) || 0;
+}
+
+function setUnreadCount(userId, count) {
+    if (count <= 0) {
+        unreadByUser.delete(userId);
+    } else {
+        unreadByUser.set(userId, count);
+    }
+    updateUnreadBadge(userId);
+}
+
+function incrementUnread(userId) {
+    setUnreadCount(userId, getUnreadCount(userId) + 1);
+}
+
+function clearUnread(userId) {
+    setUnreadCount(userId, 0);
+}
+
+function updateUnreadBadge(userId) {
+    const badge = document.getElementById(`unread-${userId}`);
+    const count = getUnreadCount(userId);
+    if (!badge) return;
+    if (count > 0) {
+        badge.textContent = count > 99 ? '99+' : String(count);
+        badge.classList.add('visible');
+    } else {
+        badge.textContent = '';
+        badge.classList.remove('visible');
+    }
+}
+
+function createChatUserItem(user, currentUser, previewText) {
+    const unread = getUnreadCount(user.id);
+    const infoChildren = [
+        el('div', { className: 'chat-user-name', textContent: user.nickname }),
+        el('div', { className: 'chat-user-preview', textContent: previewText }),
+    ];
+
+    const item = el('div', {
+        className: 'chat-user-item',
+        id: `chat-user-${user.id}`,
+        onClick: () => openChat(user, currentUser),
+    }, [
+        el('div', { className: 'chat-user-avatar' }, [
+            document.createTextNode(getInitial(user.nickname)),
+            el('span', { className: `status-dot ${user.online ? 'online' : ''}` }),
+        ]),
+        el('div', { className: 'chat-user-info' }, infoChildren),
+        el('span', { className: 'chat-unread-badge', id: `unread-${user.id}`, textContent: unread > 0 ? String(unread) : '' }),
+    ]);
+
+    if (unread > 0) {
+        item.querySelector('.chat-unread-badge').classList.add('visible');
+    }
+
+    return item;
+}
+
+function createOnlineUserItem(user, currentUser) {
+    return el('div', {
+        className: 'chat-online-item',
+        id: `chat-online-${user.id}`,
+        onClick: () => openChat(user, currentUser),
+    }, [
+        el('div', { className: 'chat-user-avatar' }, [
+            document.createTextNode(getInitial(user.nickname)),
+            el('span', { className: 'status-dot online' }),
+        ]),
+        el('span', { className: 'chat-online-name', textContent: user.nickname }),
+    ]);
+}
+
+function renderOnlineSection() {
+    const onlineList = document.getElementById('online-users-list');
+    const countEl = document.getElementById('online-count');
+    if (!onlineList) return;
+
+    const onlineUsers = sortOnlineUsers(usersCache.filter(u => u.online));
+    onlineList.innerHTML = '';
+
+    if (onlineUsers.length === 0) {
+        onlineList.appendChild(el('p', {
+            className: 'chat-section-empty',
+            textContent: 'No one online',
+        }));
+    } else {
+        onlineUsers.forEach(user => onlineList.appendChild(createOnlineUserItem(user, loggedInUser)));
+    }
+
+    if (countEl) {
+        countEl.textContent = `${onlineUsers.length} online`;
+    }
+}
+
+function renderConversationsList() {
+    const listEl = document.getElementById('chat-users-list');
+    if (!listEl) return;
+
+    const sorted = sortUsers(usersCache);
+    listEl.innerHTML = '';
+
+    if (sorted.length === 0) {
+        listEl.appendChild(el('p', {
+            className: 'chat-section-empty',
+            textContent: 'No other users yet',
+        }));
+        return;
+    }
+
+    sorted.forEach(user => {
+        const preview = user.lastPreview || (user.online ? 'Online' : 'Offline');
+        listEl.appendChild(createChatUserItem(user, loggedInUser, preview));
+    });
+}
+
+function renderUserLists() {
+    renderOnlineSection();
+    renderConversationsList();
+}
 
 /**
  * Renders the chat sidebar with user list.
- * @param {HTMLElement} container - The .main-layout element to append sidebar to.
- * @param {Object} currentUser - The logged-in user.
  */
 export function renderChatSidebar(container, currentUser) {
+    loggedInUser = currentUser;
+    unreadByUser.clear();
+
     const sidebar = el('div', { className: 'chat-sidebar', id: 'chat-sidebar' }, [
         el('div', { className: 'chat-sidebar-header' }, [
             el('span', { textContent: 'Messages' }),
-            el('span', { id: 'online-count', style: 'font-size:12px;color:var(--text-muted)' }),
         ]),
-        el('div', { className: 'chat-users-list', id: 'chat-users-list' }),
+        el('div', { className: 'chat-online-section' }, [
+            el('div', { className: 'chat-section-label' }, [
+                el('span', { textContent: 'Online' }),
+                el('span', { id: 'online-count', className: 'online-count-badge' }),
+            ]),
+            el('div', { className: 'online-users-list', id: 'online-users-list' }),
+        ]),
+        el('div', { className: 'chat-conversations-section' }, [
+            el('div', { className: 'chat-section-label', textContent: 'Conversations' }),
+            el('div', { className: 'chat-users-list', id: 'chat-users-list' }),
+        ]),
     ]);
 
     container.appendChild(sidebar);
 
-    // Chat window (hidden by default)
     const chatWindow = el('div', { className: 'chat-window hidden', id: 'chat-window' });
     document.body.appendChild(chatWindow);
 
     loadUserList(currentUser);
 
-    // Listen for real-time user status changes
     ws.on('user_status', (payload) => {
         updateUserStatus(payload.userId, payload.online);
     });
 
-    // Listen for real-time messages
     ws.on('message', (payload) => {
         handleIncomingMessage(payload, currentUser);
     });
 
-    // Listen for typing indicators
     ws.on('typing', (payload) => {
         if (currentChatUser && payload.userId === currentChatUser.id) {
             showTypingIndicator();
@@ -50,95 +197,67 @@ export function renderChatSidebar(container, currentUser) {
 }
 
 async function loadUserList(currentUser) {
-    const listEl = document.getElementById('chat-users-list');
-    if (!listEl) return;
-
     try {
         const users = await api.getUsers();
-
-        // Sort: users with last message first (by date desc), then alphabetically
-        users.sort((a, b) => {
-            if (a.lastMsgAt && b.lastMsgAt) {
-                return new Date(b.lastMsgAt) - new Date(a.lastMsgAt);
-            }
-            if (a.lastMsgAt) return -1;
-            if (b.lastMsgAt) return 1;
-            return a.nickname.localeCompare(b.nickname);
-        });
-
-        listEl.innerHTML = '';
-
-        if (users.length === 0) {
-            listEl.appendChild(el('p', {
-                style: 'padding:20px;text-align:center;color:var(--text-muted);font-size:13px',
-                textContent: 'No other users yet',
-            }));
-            return;
-        }
-
-        users.forEach(user => {
-            const item = el('div', {
-                className: 'chat-user-item',
-                id: `chat-user-${user.id}`,
-                onClick: () => openChat(user, currentUser),
-            }, [
-                el('div', { className: 'chat-user-avatar' }, [
-                    document.createTextNode(getInitial(user.nickname)),
-                    el('span', { className: `status-dot ${user.online ? 'online' : ''}` }),
-                ]),
-                el('div', { className: 'chat-user-info' }, [
-                    el('div', { className: 'chat-user-name', textContent: user.nickname }),
-                    el('div', { className: 'chat-user-preview', textContent: user.online ? 'Online' : 'Offline' }),
-                ]),
-            ]);
-            listEl.appendChild(item);
-        });
-
-        // Update online count
-        const onlineCount = users.filter(u => u.online).length;
-        const countEl = document.getElementById('online-count');
-        if (countEl) countEl.textContent = `${onlineCount} online`;
-
+        usersCache = users.map(u => ({
+            ...u,
+            lastPreview: u.online ? 'Online' : 'Offline',
+        }));
+        renderUserLists();
     } catch (err) {
         console.error('Failed to load users:', err);
     }
 }
 
 function updateUserStatus(userId, online) {
+    const user = usersCache.find(u => u.id === userId);
+    if (user) {
+        user.online = online;
+        if (!user.lastPreview || user.lastPreview === 'Online' || user.lastPreview === 'Offline') {
+            user.lastPreview = online ? 'Online' : 'Offline';
+        }
+    }
+
     const item = document.getElementById(`chat-user-${userId}`);
-    if (!item) return;
+    if (item) {
+        const dot = item.querySelector('.status-dot');
+        if (dot) dot.className = `status-dot ${online ? 'online' : ''}`;
 
-    const dot = item.querySelector('.status-dot');
-    if (dot) {
-        dot.className = `status-dot ${online ? 'online' : ''}`;
+        const preview = item.querySelector('.chat-user-preview');
+        if (preview && !(currentChatUser && currentChatUser.id === userId)) {
+            if (!user?.lastPreview || user.lastPreview === 'Online' || user.lastPreview === 'Offline') {
+                preview.textContent = online ? 'Online' : 'Offline';
+            }
+        }
     }
 
-    const preview = item.querySelector('.chat-user-preview');
-    if (preview && !(currentChatUser && currentChatUser.id === userId)) {
-        preview.textContent = online ? 'Online' : 'Offline';
-    }
+    renderOnlineSection();
+}
 
-    // Update online count
-    const dots = document.querySelectorAll('.status-dot.online');
-    const countEl = document.getElementById('online-count');
-    if (countEl) countEl.textContent = `${dots.length} online`;
+function updateConversationPreview(userId, text) {
+    const user = usersCache.find(u => u.id === userId);
+    if (user) user.lastPreview = text;
+
+    const preview = document.querySelector(`#chat-user-${userId} .chat-user-preview`);
+    if (preview) preview.textContent = text;
 }
 
 async function openChat(user, currentUser) {
     currentChatUser = user;
     messageOffset = 0;
     allMessagesLoaded = false;
+    clearUnread(user.id);
 
-    // Highlight active user
-    document.querySelectorAll('.chat-user-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.chat-user-item, .chat-online-item').forEach(i => i.classList.remove('active'));
     const userItem = document.getElementById(`chat-user-${user.id}`);
+    const onlineItem = document.getElementById(`chat-online-${user.id}`);
     if (userItem) userItem.classList.add('active');
+    if (onlineItem) onlineItem.classList.add('active');
 
     const chatWindow = document.getElementById('chat-window');
     chatWindow.className = 'chat-window';
     chatWindow.innerHTML = '';
 
-    // Header
     chatWindow.appendChild(el('div', { className: 'chat-window-header' }, [
         el('h4', { textContent: user.nickname }),
         el('button', {
@@ -148,14 +267,10 @@ async function openChat(user, currentUser) {
         }),
     ]));
 
-    // Messages area
     const messagesEl = el('div', { className: 'chat-messages', id: 'chat-messages' });
     chatWindow.appendChild(messagesEl);
-
-    // Typing indicator
     chatWindow.appendChild(el('div', { className: 'chat-typing', id: 'chat-typing' }));
 
-    // Input area
     const inputEl = el('input', { type: 'text', id: 'chat-message-input', placeholder: 'Type a message...' });
     chatWindow.appendChild(el('div', { className: 'chat-input-area' }, [
         inputEl,
@@ -167,12 +282,10 @@ async function openChat(user, currentUser) {
         }),
     ]));
 
-    // Enter to send
     inputEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') sendMessage(currentUser);
     });
 
-    // Typing indicator (debounced)
     const sendTyping = debounce(() => {
         if (currentChatUser) {
             ws.send('typing', { to: currentChatUser.id });
@@ -180,27 +293,20 @@ async function openChat(user, currentUser) {
     }, 500);
     inputEl.addEventListener('input', sendTyping);
 
-    // Load messages
     await loadMessages(messagesEl, user.id, currentUser, true);
-
-    // Scroll to bottom
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
-    // Scroll up to load more (throttled)
     const handleScroll = throttle(async () => {
         if (messagesEl.scrollTop < 50 && !allMessagesLoaded && !isLoadingMore) {
             isLoadingMore = true;
             const prevHeight = messagesEl.scrollHeight;
             await loadMessages(messagesEl, user.id, currentUser, false);
-            // Keep scroll position
             messagesEl.scrollTop = messagesEl.scrollHeight - prevHeight;
             isLoadingMore = false;
         }
     }, 1000);
 
     messagesEl.addEventListener('scroll', handleScroll);
-
-    // Focus input
     inputEl.focus();
 }
 
@@ -215,7 +321,6 @@ async function loadMessages(container, targetUserId, currentUser, isInitial) {
     try {
         const messages = await api.getMessages(targetUserId, messageOffset);
 
-        // Remove loader
         const loader = container.querySelector('.chat-messages-loading');
         if (loader) loader.remove();
 
@@ -232,18 +337,14 @@ async function loadMessages(container, targetUserId, currentUser, isInitial) {
                     className: 'empty-state',
                     style: 'padding:30px',
                 }, [
-                    el('p', { textContent: 'No messages yet. Say hi! 👋', style: 'color:var(--text-muted);font-size:13px' }),
+                    el('p', { textContent: 'No messages yet. Say hi!', style: 'color:var(--text-muted);font-size:13px' }),
                 ]));
                 return;
             }
             messages.forEach(m => appendMessage(container, m, currentUser, false));
         } else {
-            // Prepend older messages
             const fragment = document.createDocumentFragment();
-            messages.forEach(m => {
-                const msgEl = createMessageEl(m, currentUser);
-                fragment.appendChild(msgEl);
-            });
+            messages.forEach(m => fragment.appendChild(createMessageEl(m, currentUser)));
             container.prepend(fragment);
         }
     } catch (err) {
@@ -254,12 +355,10 @@ async function loadMessages(container, targetUserId, currentUser, isInitial) {
 }
 
 function appendMessage(container, message, currentUser, scrollToBottom = true) {
-    // Remove empty state if present
     const empty = container.querySelector('.empty-state');
     if (empty) empty.remove();
 
-    const msgEl = createMessageEl(message, currentUser);
-    container.appendChild(msgEl);
+    container.appendChild(createMessageEl(message, currentUser));
 
     if (scrollToBottom) {
         container.scrollTop = container.scrollHeight;
@@ -272,7 +371,7 @@ function createMessageEl(message, currentUser) {
         el('div', { textContent: message.content }),
         el('div', { className: 'chat-msg-meta' }, [
             el('span', { textContent: isSent ? 'You' : (message.senderName || 'User') }),
-            el('span', { textContent: formatChatTime(message.createdAt) }),
+            el('span', { textContent: formatMessageDateTime(message.createdAt) }),
         ]),
     ]);
 }
@@ -293,35 +392,51 @@ function sendMessage(currentUser) {
 
 function handleIncomingMessage(payload, currentUser) {
     const messagesEl = document.getElementById('chat-messages');
+    const otherUserId = payload.senderId === currentUser.id ? payload.receiverId : payload.senderId;
+    const sender = usersCache.find(u => u.id === payload.senderId);
+    const senderName = payload.senderName || sender?.nickname || 'User';
 
-    // If chat window is open with this user, append message
     if (currentChatUser && messagesEl) {
         const isRelevant = payload.senderId === currentChatUser.id || payload.receiverId === currentChatUser.id;
         if (isRelevant) {
             messageOffset++;
             appendMessage(messagesEl, payload, currentUser, true);
-            // Clear typing indicator
             const typingEl = document.getElementById('chat-typing');
             if (typingEl) typingEl.textContent = '';
+            if (payload.senderId !== currentUser.id) {
+                clearUnread(currentChatUser.id);
+            }
             return;
         }
     }
 
-    // Update user list preview for other conversations
-    const otherUserId = payload.senderId === currentUser.id ? payload.receiverId : payload.senderId;
+    const truncated = payload.content.length > 30 ? payload.content.slice(0, 30) + '...' : payload.content;
+    updateConversationPreview(otherUserId, truncated);
+
     const userItem = document.getElementById(`chat-user-${otherUserId}`);
     if (userItem) {
-        const preview = userItem.querySelector('.chat-user-preview');
-        if (preview) {
-            const truncated = payload.content.length > 30 ? payload.content.slice(0, 30) + '...' : payload.content;
-            preview.textContent = truncated;
-        }
-
-        // Move user to top of list
         const list = document.getElementById('chat-users-list');
         if (list && list.firstChild !== userItem) {
             list.prepend(userItem);
         }
+    }
+
+    const cached = usersCache.find(u => u.id === otherUserId);
+    if (cached) {
+        cached.lastMsgAt = payload.createdAt || new Date().toISOString();
+        cached.lastPreview = truncated;
+    }
+
+    if (payload.senderId !== currentUser.id) {
+        incrementUnread(otherUserId);
+        showToast(
+            `New message from ${senderName}`,
+            truncated,
+            () => {
+                const user = usersCache.find(u => u.id === otherUserId);
+                if (user) openChat(user, currentUser);
+            }
+        );
     }
 }
 
@@ -342,14 +457,18 @@ function closeChat() {
     const chatWindow = document.getElementById('chat-window');
     if (chatWindow) chatWindow.classList.add('hidden');
 
-    document.querySelectorAll('.chat-user-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.chat-user-item, .chat-online-item').forEach(i => i.classList.remove('active'));
 }
 
-/**
- * Cleans up the chat component.
- */
 export function destroyChat() {
     const chatWindow = document.getElementById('chat-window');
     if (chatWindow) chatWindow.remove();
+
+    const toastContainer = document.getElementById('toast-container');
+    if (toastContainer) toastContainer.remove();
+
     currentChatUser = null;
+    usersCache = [];
+    loggedInUser = null;
+    unreadByUser.clear();
 }

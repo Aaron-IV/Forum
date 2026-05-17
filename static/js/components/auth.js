@@ -9,7 +9,7 @@ import { el, escapeHTML } from './utils.js';
  */
 export function renderLogin(container, onSuccess) {
     const card = el('div', { className: 'auth-card fade-in' }, [
-        el('h1', { textContent: '✦ Welcome Back' }),
+        el('h1', { textContent: 'Welcome Back' }),
         el('p', { className: 'subtitle', textContent: 'Sign in to continue to the forum' }),
         el('div', { className: 'form-error', id: 'login-error' }),
         el('form', { id: 'login-form' }, [
@@ -65,7 +65,7 @@ export function renderLogin(container, onSuccess) {
  */
 export function renderRegister(container, onSuccess) {
     const card = el('div', { className: 'auth-card fade-in' }, [
-        el('h1', { textContent: '✦ Create Account' }),
+        el('h1', { textContent: 'Create Account' }),
         el('p', { className: 'subtitle', textContent: 'Join the community and start discussing' }),
         el('div', { className: 'form-error', id: 'register-error' }),
         el('form', { id: 'register-form' }, [

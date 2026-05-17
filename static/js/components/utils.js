@@ -39,6 +39,47 @@ export function formatChatTime(dateStr) {
 }
 
 /**
+ * Formats a date and time for chat message metadata.
+ */
+export function formatMessageDateTime(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+/**
+ * Shows a short-lived toast notification.
+ */
+export function showToast(title, body, onClick) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = el('div', { id: 'toast-container', className: 'toast-container' });
+        document.body.appendChild(container);
+    }
+
+    const toast = el('div', { className: 'toast fade-in' }, [
+        el('div', { className: 'toast-title', textContent: title }),
+        el('div', { className: 'toast-body', textContent: body }),
+    ]);
+
+    if (onClick) {
+        toast.style.cursor = 'pointer';
+        toast.addEventListener('click', () => {
+            onClick();
+            toast.remove();
+        });
+    }
+
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+}
+
+/**
  * Creates a throttled version of a function.
  */
 export function throttle(fn, delay) {

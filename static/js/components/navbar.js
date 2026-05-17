@@ -10,7 +10,7 @@ import { el, getInitial } from './utils.js';
  */
 export function renderNavbar(container, user, onLogout) {
     const navbar = el('nav', { className: 'navbar', id: 'main-navbar' }, [
-        el('div', { className: 'navbar-brand', textContent: '✦ Forum', onClick: () => { window.location.hash = '#/'; } }),
+        el('div', { className: 'navbar-brand', textContent: 'Forum', onClick: () => { window.location.hash = '#/'; } }),
         el('div', { className: 'navbar-user' }, [
             el('div', { className: 'navbar-avatar', textContent: getInitial(user.nickname) }),
             el('span', { className: 'navbar-username', textContent: user.nickname }),
