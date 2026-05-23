@@ -3,6 +3,8 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strings"
+
 	"real-time-forum/database"
 )
 
@@ -11,16 +13,25 @@ type contextKey string
 
 const UserIDKey contextKey = "userID"
 
-// Auth is middleware that validates the session cookie and injects userID into context.
+// bearerToken extracts the session token from Authorization: Bearer <token>.
+func bearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
+}
+
+// Auth is middleware that validates the Bearer session token and injects userID into context.
 func Auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("session")
-		if err != nil {
+		token := bearerToken(r)
+		if token == "" {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
 
-		session, err := database.GetSession(cookie.Value)
+		session, err := database.GetSession(token)
 		if err != nil {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return

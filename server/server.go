@@ -61,7 +61,16 @@ func Start(hub *ws.Hub, port string) {
 	mux.HandleFunc("/api/users", middleware.Auth(handlers.GetUsers(hub)))
 
 	// Messages route
-	mux.HandleFunc("/api/messages/", middleware.Auth(handlers.GetMessages))
+	mux.HandleFunc("/api/messages/", middleware.Auth(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handlers.GetMessages(w, r)
+		case http.MethodPost:
+			handlers.SendMessage(hub)(w, r)
+		default:
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		}
+	}))
 
 	// WebSocket route
 	mux.HandleFunc("/ws", ws.Handler(hub))

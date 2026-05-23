@@ -5,10 +5,6 @@ import (
 	"log"
 	"time"
 
-	"real-time-forum/database"
-	"real-time-forum/models"
-
-	"github.com/gofrs/uuid"
 	gorilla "github.com/gorilla/websocket"
 )
 
@@ -112,50 +108,9 @@ func (c *Client) handleChatMessage(payload json.RawMessage) {
 		return
 	}
 
-	msgID, _ := uuid.NewV4()
-	now := time.Now()
-
-	// Get sender name
-	sender, _ := database.GetUserByID(c.UserID)
-	senderName := ""
-	if sender != nil {
-		senderName = sender.Nickname
+	if _, err := c.hub.DeliverPrivateMessage(c.UserID, chat.To, chat.Content); err != nil {
+		log.Printf("Failed to deliver message: %v", err)
 	}
-
-	// Save to database
-	dbMsg := &models.Message{
-		ID:         msgID.String(),
-		SenderID:   c.UserID,
-		ReceiverID: chat.To,
-		Content:    chat.Content,
-		CreatedAt:  now,
-	}
-
-	if err := database.SaveMessage(dbMsg); err != nil {
-		log.Printf("Failed to save message: %v", err)
-		return
-	}
-
-	// Build response message
-	response := map[string]interface{}{
-		"type": "message",
-		"payload": map[string]interface{}{
-			"id":         dbMsg.ID,
-			"senderId":   c.UserID,
-			"senderName": senderName,
-			"receiverId": chat.To,
-			"content":    chat.Content,
-			"createdAt":  now.Format(time.RFC3339),
-		},
-	}
-
-	responseBytes, _ := json.Marshal(response)
-
-	// Send to recipient
-	c.hub.SendToUser(chat.To, responseBytes)
-
-	// Send confirmation back to sender
-	c.hub.SendToUser(c.UserID, responseBytes)
 }
 
 // handleTyping forwards a typing indicator to the target user.

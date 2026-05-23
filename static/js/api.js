@@ -1,12 +1,21 @@
 // api.js — HTTP API client wrapper
 
+import { getToken, setToken, clearToken } from './session.js';
+
 const BASE = '';
 
 async function request(url, options = {}) {
+    const { headers: optHeaders, ...rest } = options;
+    const headers = { 'Content-Type': 'application/json', ...optHeaders };
+    const token = getToken();
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const res = await fetch(BASE + url, {
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        ...options,
+        ...rest,
+        headers,
     });
 
     const data = await res.json().catch(() => null);
@@ -15,6 +24,7 @@ async function request(url, options = {}) {
 
     if (!res.ok) {
         if (res.status === 401) {
+            clearToken();
             window.dispatchEvent(new CustomEvent('auth:unauthorized'));
         }
         throw new Error(data.error || 'Request failed');
@@ -24,16 +34,24 @@ async function request(url, options = {}) {
 }
 
 // Auth
-export function register(data) {
-    return request('/api/auth/register', { method: 'POST', body: JSON.stringify(data) });
+export async function register(data) {
+    const user = await request('/api/auth/register', { method: 'POST', body: JSON.stringify(data) });
+    if (user.token) setToken(user.token);
+    return user;
 }
 
-export function login(data) {
-    return request('/api/auth/login', { method: 'POST', body: JSON.stringify(data) });
+export async function login(data) {
+    const user = await request('/api/auth/login', { method: 'POST', body: JSON.stringify(data) });
+    if (user.token) setToken(user.token);
+    return user;
 }
 
-export function logout() {
-    return request('/api/auth/logout', { method: 'POST' });
+export async function logout() {
+    try {
+        await request('/api/auth/logout', { method: 'POST' });
+    } finally {
+        clearToken();
+    }
 }
 
 export function getMe() {
@@ -74,4 +92,11 @@ export function getUsers() {
 // Messages
 export function getMessages(userId, offset = 0) {
     return request(`/api/messages/${userId}?offset=${offset}`);
+}
+
+export function sendMessage(userId, content) {
+    return request(`/api/messages/${userId}`, {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+    });
 }

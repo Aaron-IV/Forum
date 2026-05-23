@@ -20,20 +20,18 @@ var upgrader = gorilla.Upgrader{
 // Handler returns an HTTP handler that upgrades the connection to WebSocket.
 func Handler(hub *Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Authenticate via session cookie
-		cookie, err := r.Cookie("session")
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		session, err := database.GetSession(token)
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		session, err := database.GetSession(cookie.Value)
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Upgrade to WebSocket
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("WebSocket upgrade failed: %v", err)
@@ -48,8 +46,6 @@ func Handler(hub *Hub) http.HandlerFunc {
 		}
 
 		hub.register <- client
-
-		// Start pumps in separate goroutines
 		go client.writePump()
 		go client.readPump()
 	}

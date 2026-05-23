@@ -111,7 +111,8 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create session
-	if err := createSession(w, user.ID); err != nil {
+	token, err := createSession(user.ID)
+	if err != nil {
 		jsonError(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
@@ -121,6 +122,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		"nickname":  user.Nickname,
 		"firstName": user.FirstName,
 		"lastName":  user.LastName,
+		"token":     token,
 	})
 }
 
@@ -164,11 +166,9 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove any existing sessions for this user
-	database.DeleteSessionsByUser(user.ID)
-
-	// Create new session
-	if err := createSession(w, user.ID); err != nil {
+	// Create new session (each tab gets its own independent session)
+	token, err := createSession(user.ID)
+	if err != nil {
 		jsonError(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
@@ -178,6 +178,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		"nickname":  user.Nickname,
 		"firstName": user.FirstName,
 		"lastName":  user.LastName,
+		"token":     token,
 	})
 }
 
@@ -188,18 +189,11 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookie, err := r.Cookie("session")
-	if err == nil {
-		database.DeleteSession(cookie.Value)
+	// Read token from Authorization header
+	token := extractBearerToken(r)
+	if token != "" {
+		database.DeleteSession(token)
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-	})
 
 	jsonOK(w, map[string]string{"message": "logged out"})
 }
@@ -224,8 +218,9 @@ func Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// createSession generates a session token, saves it, and sets the cookie.
-func createSession(w http.ResponseWriter, userID string) error {
+// createSession generates a session token and saves it to the database.
+// Returns the token string so it can be sent in the response body.
+func createSession(userID string) (string, error) {
 	token, _ := uuid.NewV4()
 	session := &models.Session{
 		Token:     token.String(),
@@ -234,17 +229,17 @@ func createSession(w http.ResponseWriter, userID string) error {
 	}
 
 	if err := database.CreateSession(session); err != nil {
-		return err
+		return "", err
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    session.Token,
-		Path:     "/",
-		Expires:  session.ExpiresAt,
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	})
+	return session.Token, nil
+}
 
-	return nil
+// extractBearerToken extracts a token from the Authorization: Bearer <token> header.
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
 }

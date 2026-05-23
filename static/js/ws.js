@@ -1,5 +1,7 @@
 // ws.js — WebSocket client with auto-reconnect
 
+import { getToken } from './session.js';
+
 let socket = null;
 let reconnectAttempts = 0;
 let shouldReconnect = true;
@@ -11,15 +13,19 @@ const handlers = {};
  * Connects to the WebSocket server.
  */
 export function connect() {
-    // Don't connect if already connected or connecting
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-        return;
+    const token = getToken();
+    if (!token) return;
+
+    if (socket) {
+        if (socket.readyState === WebSocket.OPEN) return;
+        if (socket.readyState === WebSocket.CONNECTING) return;
+        socket = null;
     }
 
     shouldReconnect = true;
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    socket = new WebSocket(`${protocol}//${location.host}/ws`);
+    socket = new WebSocket(`${protocol}//${location.host}/ws?token=${encodeURIComponent(token)}`);
 
     socket.onopen = () => {
         console.log('WebSocket connected');
@@ -102,7 +108,13 @@ export function off(type, callback) {
 export function send(type, payload) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type, payload }));
+        return true;
     }
+    return false;
+}
+
+export function isConnected() {
+    return socket && socket.readyState === WebSocket.OPEN;
 }
 
 /**

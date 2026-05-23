@@ -376,7 +376,7 @@ function createMessageEl(message, currentUser) {
     ]);
 }
 
-function sendMessage(currentUser) {
+async function sendMessage(currentUser) {
     if (!currentChatUser) return;
 
     const input = document.getElementById('chat-message-input');
@@ -385,9 +385,25 @@ function sendMessage(currentUser) {
     const content = input.value.trim();
     if (!content) return;
 
-    ws.send('message', { to: currentChatUser.id, content });
-    input.value = '';
-    input.focus();
+    const messagesEl = document.getElementById('chat-messages');
+    const sendBtn = document.getElementById('chat-send-btn');
+    if (sendBtn) sendBtn.disabled = true;
+
+    try {
+        const message = await api.sendMessage(currentChatUser.id, content);
+        input.value = '';
+        if (messagesEl) {
+            messageOffset++;
+            appendMessage(messagesEl, message, currentUser, true);
+        }
+        const truncated = content.length > 30 ? content.slice(0, 30) + '...' : content;
+        updateConversationPreview(currentChatUser.id, truncated);
+        input.focus();
+    } catch (err) {
+        showToast('Message not sent', err.message || 'Try again');
+    } finally {
+        if (sendBtn) sendBtn.disabled = false;
+    }
 }
 
 function handleIncomingMessage(payload, currentUser) {
