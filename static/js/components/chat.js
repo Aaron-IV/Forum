@@ -12,6 +12,23 @@ let usersCache = [];
 let loggedInUser = null;
 const unreadByUser = new Map();
 
+// #region agent log
+function debugChatLog(hypothesisId, location, message, data) {
+    fetch('http://127.0.0.1:7641/ingest/707ecb83-daa7-42c1-a90e-170c1a247f85', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f0b51a' },
+        body: JSON.stringify({
+            sessionId: 'f0b51a',
+            hypothesisId,
+            location,
+            message,
+            data,
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {});
+}
+// #endregion
+
 function sortUsers(users) {
     return [...users].sort((a, b) => {
         if (a.lastMsgAt && b.lastMsgAt) {
@@ -358,7 +375,47 @@ function appendMessage(container, message, currentUser, scrollToBottom = true) {
     const empty = container.querySelector('.empty-state');
     if (empty) empty.remove();
 
-    container.appendChild(createMessageEl(message, currentUser));
+    const msgEl = createMessageEl(message, currentUser);
+    container.appendChild(msgEl);
+
+    // #region agent log
+    requestAnimationFrame(() => {
+        const contentEl = msgEl.firstElementChild;
+        const cs = contentEl ? getComputedStyle(contentEl) : null;
+        const bubbleCs = getComputedStyle(msgEl);
+        const containerCs = getComputedStyle(container);
+        debugChatLog('A', 'chat.js:appendMessage', 'flex/overflow layout', {
+            msgCount: container.children.length,
+            bubbleHeight: msgEl.offsetHeight,
+            bubbleScrollH: msgEl.scrollHeight,
+            bubbleFlexShrink: bubbleCs?.flexShrink,
+            bubbleOverflow: bubbleCs?.overflow,
+            containerDisplay: containerCs.display,
+            containerFlexDirection: containerCs.flexDirection,
+            contentLen: message.content?.length ?? 0,
+            contentEmpty: !message.content,
+        });
+        debugChatLog('B', 'chat.js:appendMessage', 'message payload', {
+            hasContent: Boolean(message.content),
+            contentLen: message.content?.length ?? 0,
+            senderId: message.senderId,
+            keys: Object.keys(message),
+        });
+        debugChatLog('C', 'chat.js:appendMessage', 'text colors', {
+            textColor: cs?.color,
+            bgColor: bubbleCs?.backgroundColor,
+            webkitFill: cs?.webkitTextFillColor,
+            opacity: cs?.opacity,
+            isSent: msgEl.classList.contains('sent'),
+        });
+        debugChatLog('D', 'chat.js:appendMessage', 'content box', {
+            contentOffsetH: contentEl?.offsetHeight,
+            contentScrollH: contentEl?.scrollHeight,
+            contentClientH: contentEl?.clientHeight,
+            bubbleOffsetH: msgEl.offsetHeight,
+        });
+    });
+    // #endregion
 
     if (scrollToBottom) {
         container.scrollTop = container.scrollHeight;

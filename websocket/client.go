@@ -108,9 +108,19 @@ func (c *Client) handleChatMessage(payload json.RawMessage) {
 		return
 	}
 
-	if _, err := c.hub.DeliverPrivateMessage(c.UserID, chat.To, chat.Content); err != nil {
+	msgPayload, err := c.hub.DeliverPrivateMessage(c.UserID, chat.To, chat.Content)
+	if err != nil {
 		log.Printf("Failed to deliver message: %v", err)
+		return
 	}
+
+	// Echo the saved message back to the sender (DeliverPrivateMessage only
+	// notifies the receiver; the sender needs a copy when using the WS path).
+	echo, _ := json.Marshal(map[string]interface{}{
+		"type":    "message",
+		"payload": msgPayload,
+	})
+	c.hub.SendToUser(c.UserID, echo)
 }
 
 // handleTyping forwards a typing indicator to the target user.

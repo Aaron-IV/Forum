@@ -354,6 +354,7 @@ a:hover { color: var(--accent-hover); }
     margin-bottom: 12px;
     cursor: pointer;
     transition: all var(--transition);
+    overflow: hidden;
 }
 
 .post-card:hover {
@@ -402,6 +403,8 @@ a:hover { color: var(--accent-hover); }
     font-size: 17px;
     font-weight: 600;
     margin-bottom: 6px;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .post-card-content {
@@ -412,6 +415,8 @@ a:hover { color: var(--accent-hover); }
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .post-card-footer {
@@ -533,11 +538,16 @@ a:hover { color: var(--accent-hover); }
     border-radius: var(--radius-md);
     padding: 28px;
     margin-bottom: 24px;
+    overflow: hidden;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .single-post-card h2 {
     font-size: 22px;
     margin-bottom: 16px;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .single-post-card .post-content {
@@ -545,6 +555,8 @@ a:hover { color: var(--accent-hover); }
     color: var(--text-secondary);
     line-height: 1.7;
     white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 /* ===== COMMENTS ===== */
@@ -917,6 +929,10 @@ a:hover { color: var(--accent-hover); }
     font-size: 13px;
     line-height: 1.4;
     word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .chat-msg.sent {

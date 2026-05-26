@@ -49,7 +49,6 @@ func (h *Hub) DeliverPrivateMessage(senderID, receiverID, content string) (map[s
 	responseBytes, _ := json.Marshal(response)
 
 	h.SendToUser(receiverID, responseBytes)
-	h.SendToUser(senderID, responseBytes)
 
 	return payload, nil
 }
